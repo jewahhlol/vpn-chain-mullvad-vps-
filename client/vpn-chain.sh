@@ -168,12 +168,75 @@ case "$1" in
         ;;
     check)
         echo -e "${CYAN}=== Full Chain Verification ===${RESET}"
-        echo -e "${YELLOW}curl:${RESET}    $(curl -4 -s --connect-timeout 5 ifconfig.me)"
-        echo -e "${YELLOW}wget:${RESET}    $(wget -4 -qO- --timeout=5 ifconfig.me 2>/dev/null)"
-        echo -e "${YELLOW}python:${RESET}  $(python3 -c "import urllib.request; print(urllib.request.urlopen('http://ifconfig.me').read().decode().strip())" 2>/dev/null)"
-        echo -e "${YELLOW}DNS:${RESET}     $(nslookup example.com 2>/dev/null | grep Server | awk '{print $2}')"
-        DNS_EXT=$(nslookup -type=txt o-o.myaddr.l.google.com ns1.google.com 2>/dev/null | grep text | head -1 | tr -d '"' | awk '{print $NF}')
-        echo -e "${YELLOW}DNS exit:${RESET}$([ -n "$DNS_EXT" ] && echo " $DNS_EXT" || echo " could not determine")"
+        echo ""
+
+        # Exit IP from multiple apps
+        CURL_IP=$(curl -4 -s --connect-timeout 10 ifconfig.me)
+        WGET_IP=$(wget -4 -qO- --timeout=10 --header="User-Agent: curl/8.0" ifconfig.me 2>/dev/null)
+        PY_IP=$(python3 -c "import urllib.request; print(urllib.request.urlopen('http://ifconfig.me').read().decode().strip())" 2>/dev/null)
+        echo -e "${YELLOW}curl:${RESET}      ${CURL_IP:-FAILED}"
+        echo -e "${YELLOW}wget:${RESET}      ${WGET_IP:-FAILED}"
+        echo -e "${YELLOW}python:${RESET}    ${PY_IP:-FAILED}"
+
+        # Check all apps show same IP
+        if [ "$CURL_IP" = "$WGET_IP" ] && [ "$CURL_IP" = "$PY_IP" ] && [ -n "$CURL_IP" ]; then
+            echo -e "${GREEN}[+] All apps exit through same IP${RESET}"
+        else
+            echo -e "${RED}[-] WARNING: Apps show different IPs!${RESET}"
+        fi
+        echo ""
+
+        # DNS check
+        DNS_SERVER=$(nslookup example.com 2>/dev/null | grep Server | awk '{print $2}')
+        echo -e "${YELLOW}DNS server:${RESET}  ${DNS_SERVER:-FAILED}"
+        if [ "$DNS_SERVER" = "127.0.0.53" ]; then
+            echo -e "${GREEN}[+] DNS goes through dnscrypt-proxy (no leaks)${RESET}"
+        else
+            echo -e "${RED}[-] WARNING: DNS may be leaking (expected 127.0.0.53)${RESET}"
+        fi
+        echo ""
+
+        # IPv6 check
+        IPV6=$(curl -6 -s --connect-timeout 5 ifconfig.me 2>/dev/null)
+        if [ -z "$IPV6" ]; then
+            echo -e "${GREEN}[+] IPv6: blocked (no leaks)${RESET}"
+        else
+            echo -e "${RED}[-] WARNING: IPv6 is leaking! ($IPV6)${RESET}"
+        fi
+
+        # Detect mode and verify chain
+        MULLVAD_STATUS=$(mullvad status 2>/dev/null | head -1)
+        echo ""
+        if echo "$MULLVAD_STATUS" | grep -q "Connected"; then
+            echo -e "${CYAN}--- FORWARD MODE ---${RESET}"
+            MULLVAD_RELAY=$(mullvad status 2>/dev/null | grep Relay | awk '{print $2}')
+            MULLVAD_LOCATION=$(mullvad status 2>/dev/null | grep "Visible location" | sed 's/.*Visible location:[[:space:]]*//')
+            echo -e "${YELLOW}Mullvad relay:${RESET}  $MULLVAD_RELAY"
+            echo -e "${YELLOW}Mullvad location:${RESET} $MULLVAD_LOCATION"
+
+            # Check what VPS sees as source
+            VPS_PEER=$(vps_cmd "awg show | grep endpoint | awk '{print \$3}' | cut -d: -f1" 2>/dev/null)
+            if [ -n "$VPS_PEER" ]; then
+                echo -e "${YELLOW}VPS sees source:${RESET} $VPS_PEER"
+                if [ "$VPS_PEER" != "$(curl -4 -s --connect-timeout 3 ifconfig.me/ip 2>/dev/null)" ]; then
+                    echo -e "${GREEN}[+] VPS does NOT see your real IP (sees Mullvad exit)${RESET}"
+                fi
+            fi
+            echo -e "${YELLOW}Target sees:${RESET}    $CURL_IP (VPS)"
+        else
+            echo -e "${CYAN}--- REVERSE MODE ---${RESET}"
+            VPS_MULLVAD=$(vps_cmd "curl -s --connect-timeout 5 --interface mullvad ifconfig.me" 2>/dev/null)
+            echo -e "${YELLOW}VPS Mullvad exit:${RESET} ${VPS_MULLVAD:-not running}"
+            echo -e "${YELLOW}Target sees:${RESET}      $CURL_IP (Mullvad)"
+        fi
+
+        echo ""
+        echo -e "${CYAN}--- SUMMARY ---${RESET}"
+        ISSUES=0
+        [ "$CURL_IP" = "$WGET_IP" ] && [ "$CURL_IP" = "$PY_IP" ] && [ -n "$CURL_IP" ] || { echo -e "${RED}  [!] Exit IP mismatch across apps${RESET}"; ISSUES=$((ISSUES+1)); }
+        [ "$DNS_SERVER" = "127.0.0.53" ] || { echo -e "${RED}  [!] DNS leak detected${RESET}"; ISSUES=$((ISSUES+1)); }
+        [ -z "$IPV6" ] || { echo -e "${RED}  [!] IPv6 leak detected${RESET}"; ISSUES=$((ISSUES+1)); }
+        [ $ISSUES -eq 0 ] && echo -e "${GREEN}  All checks passed. No leaks detected.${RESET}"
         ;;
     rotate)
         shift
@@ -188,19 +251,55 @@ case "$1" in
             echo -e "${GREEN}[+] New exit IP: $IP${RESET}"
         fi
         ;;
+    switch)
+        shift
+        if ! mullvad status 2>/dev/null | grep -q "Connected"; then
+            echo -e "${RED}[-] Mullvad not connected. 'switch' is for forward mode only.${RESET}"
+            echo -e "${YELLOW}    For reverse mode use: vpn-chain rotate${RESET}"
+            exit 1
+        fi
+        if [ -z "$1" ]; then
+            echo -e "${CYAN}=== Mullvad Server (Forward Mode) ===${RESET}"
+            mullvad status 2>/dev/null
+            echo ""
+            echo "Usage: vpn-chain switch <country> [city]"
+            echo ""
+            echo "Examples:"
+            echo "  vpn-chain switch de        Germany (random server)"
+            echo "  vpn-chain switch de ber    Berlin"
+            echo "  vpn-chain switch us nyc    New York"
+            echo "  vpn-chain switch ch zrh    Zurich"
+            echo ""
+            echo "Available locations:"
+            mullvad relay list 2>/dev/null | grep -E "^\S" | head -30
+        else
+            LOCATION="$*"
+            echo -e "${CYAN}[*] Switching Mullvad to: $LOCATION${RESET}"
+            mullvad relay set location $LOCATION 2>&1
+            mullvad reconnect 2>&1
+            sleep 5
+            NEW_STATUS=$(mullvad status 2>/dev/null)
+            echo -e "${GREEN}[+] $(echo "$NEW_STATUS" | head -1)${RESET}"
+            echo -e "${GREEN}    $(echo "$NEW_STATUS" | grep "Visible location")${RESET}"
+        fi
+        ;;
     *)
         echo "vpn-chain — double VPN chain manager"
         echo ""
-        echo "Usage: vpn-chain {start|start reverse|stop|status|check|rotate}"
+        echo "Usage: vpn-chain {start|start reverse|stop|status|check|rotate|switch}"
         echo ""
         echo "  start          FORWARD: VM -> Mullvad -> VPS (exit = $VPS_IP)"
         echo "  start reverse  REVERSE: VM -> VPS -> Mullvad (exit = Mullvad IP)"
         echo "  stop           Stop all chains"
         echo "  status         Component status + exit IP"
-        echo "  check          Verify all apps exit through chain"
+        echo "  check          Full chain verification (leak test)"
         echo "  rotate [cc]    Rotate Mullvad server (reverse mode)"
         echo "                   rotate         — show current + countries"
         echo "                   rotate us      — random US server"
         echo "                   rotate de ber  — Berlin"
+        echo "  switch [cc]    Switch Mullvad server (forward mode)"
+        echo "                   switch         — show current + locations"
+        echo "                   switch de      — Germany"
+        echo "                   switch us nyc  — New York"
         ;;
 esac
