@@ -69,7 +69,8 @@ apt-get install -y -qq dnscrypt-proxy
 # Configure: listen on 127.0.0.53, force TCP (redsocks catches TCP → chain)
 sed -i "s/^listen_addresses.*/listen_addresses = ['127.0.0.53:53']/" /etc/dnscrypt-proxy/dnscrypt-proxy.toml
 sed -i "/^force_tcp/d" /etc/dnscrypt-proxy/dnscrypt-proxy.toml
-sed -i "/^listen_addresses/a force_tcp = true" /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+sed -i "/^proxy/d" /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+sed -i "/^listen_addresses/a force_tcp = true\nproxy = \"socks5://127.0.0.1:1080\"" /etc/dnscrypt-proxy/dnscrypt-proxy.toml
 systemctl restart dnscrypt-proxy
 systemctl enable dnscrypt-proxy
 # Lock resolv.conf to use dnscrypt-proxy
