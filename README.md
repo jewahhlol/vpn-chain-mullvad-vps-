@@ -95,102 +95,160 @@ VPS decrypts, forwards to 93.184.216.34:80
 
 ### 1. Set up the VPS
 
+Get a VPS with Debian 12 / Ubuntu 22.04+ (KVM, not OpenVZ). Then from your local machine:
+
 ```bash
+# SSH to your new VPS
 ssh root@YOUR_VPS_IP
 
-# Download and run server setup
+# Clone the repo and run server setup
 git clone https://github.com/YOUR_USER/vpn-chain.git
 cd vpn-chain/server
-chmod +x install.sh
+chmod +x *.sh
 ./install.sh
 ```
 
-The installer will:
-- Install AmneziaWG kernel module
-- Generate server + client keys
-- Create AWG server config with obfuscation
-- Enable IP forwarding
-- Set up iptables MASQUERADE
-- Print client config to copy to your VM
+> **If you see "AmneziaWG module not loaded"**: the kernel module was built for a newer kernel than what's running. Run `reboot`, SSH back in, and run `./install.sh` again. This is normal on fresh Debian installs.
+
+The installer will output a **client config** at the end — copy it, you'll need it in step 3.
 
 ### 2. Set up the client VM
 
+On your Kali / Debian VM (must use **Bridged Adapter** in VirtualBox, not NAT):
+
 ```bash
-# On the Kali VM
 git clone https://github.com/YOUR_USER/vpn-chain.git
 cd vpn-chain/client
 chmod +x install.sh
-./install.sh
+sudo ./install.sh
 ```
 
-The installer will:
-- Install wireproxy-awg, redsocks
-- Create config templates
-- Install `vpn-chain` command
+This installs wireproxy-awg, redsocks, dnscrypt-proxy, and the `vpn-chain` command.
 
-### 3. Configure
+### 3. Paste the client config
+
+Take the client config that `install.sh` printed on the VPS (step 1) and paste it:
 
 ```bash
-# Paste the client config from step 1
 sudo nano /etc/wireproxy-awg.conf
+```
 
-# For forward mode: install and configure Mullvad
-# See docs/mullvad-setup.md
+Replace everything in the file with the config from the VPS. It looks like this:
+
+```ini
+[Interface]
+Address = 10.9.9.3/32
+PrivateKey = <generated key>
+DNS = 1.1.1.1
+...
+
+[Peer]
+PublicKey = <server public key>
+Endpoint = YOUR_VPS_IP:5000
+...
+
+[Socks5]
+BindAddress = 127.0.0.1:1080
 ```
 
 ### 4. Set up SSH key for auto-switching
 
-The `vpn-chain` script automatically SSHs to the VPS to switch Mullvad WG on/off when changing modes. Set up key-based SSH auth:
+The `vpn-chain` script SSHs to the VPS to toggle Mullvad WG when switching modes. Since the script runs as root (via sudo), the SSH key must belong to root:
 
 ```bash
-# On the Kali VM (as root, since vpn-chain runs under sudo)
+# Generate root's SSH key (skip if /root/.ssh/id_ed25519 already exists)
 sudo ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519
+
+# Copy it to the VPS (enter VPS root password when prompted)
 sudo ssh-copy-id root@YOUR_VPS_IP
+
+# Verify it works without a password
+sudo ssh root@YOUR_VPS_IP "echo ok"
 ```
 
-Without this, mode switching still works but you'll need to SSH to the VPS manually to run `mullvad-wg-start.sh` / `mullvad-wg-stop.sh`.
+> **Without this step**: the chain itself still works, but you'll need to SSH to the VPS manually to run `mullvad-wg-start.sh` / `mullvad-wg-stop.sh` when switching modes.
 
 ### 5. Set up reverse mode (optional)
 
+If you want exit IP rotation (recommended), run on the VPS:
+
 ```bash
-# On the VPS
 cd vpn-chain/server
-chmod +x setup-mullvad-wg.sh
 ./setup-mullvad-wg.sh
 ```
 
-### 6. Run
+The script will:
+1. Generate a WireGuard key pair
+2. Show you a `curl` command to register the key with Mullvad
+3. Ask you to paste the IP address Mullvad returned
+
+> **How to register**: open a second terminal to the VPS, run the `curl` command the script shows (replace `YOUR_ACCOUNT_NUMBER` with your Mullvad account number). It returns an IP like `10.68.x.x/32` — paste that into the first terminal.
+
+### 6. Test it
 
 ```bash
-sudo vpn-chain start            # forward mode
-sudo vpn-chain start reverse    # reverse mode
-sudo vpn-chain status           # check
+# Reverse mode (VM → VPS → Mullvad)
+sudo vpn-chain start reverse
+
+# Check your exit IP
+curl ifconfig.me
+
+# Rotate to a different country
+sudo vpn-chain rotate us
+
+# Switch to forward mode (VM → Mullvad → VPS)
+sudo vpn-chain start forward
+
+# Stop everything
+sudo vpn-chain stop
 ```
 
-## Mode Switching
+### 7. For forward mode: install Mullvad on the VM
 
-Switching between forward and reverse is fully automatic — the script SSHs to the VPS and toggles Mullvad WG:
+Forward mode requires the Mullvad app on your VM. See [docs/mullvad-setup.md](docs/mullvad-setup.md).
+
+## Commands
 
 ```bash
-sudo vpn-chain start           # Forward: stops Mullvad WG on VPS, starts Mullvad on VM
-sudo vpn-chain start reverse   # Reverse: starts Mullvad WG on VPS, stops Mullvad on VM
+sudo vpn-chain start            # Forward mode (exit = VPS IP)
+sudo vpn-chain start reverse    # Reverse mode (exit = Mullvad IP)
+sudo vpn-chain stop             # Stop all chains
+sudo vpn-chain status           # Show component status + exit IP
+sudo vpn-chain check            # Verify all apps exit through chain
+sudo vpn-chain rotate           # Show current Mullvad server + countries
+sudo vpn-chain rotate us        # Switch to random US server
+sudo vpn-chain rotate de ber    # Switch to Berlin
+sudo vpn-chain rotate jp        # Switch to Japan
 ```
 
-If SSH to VPS fails (no key, VPS unreachable), you'll see a warning — switch VPS mode manually.
+## Replacing / rotating VPS
 
-## Server Management (reverse mode)
+When your VPS expires or you want a fresh one:
 
-Rotate Mullvad exit servers on VPS:
+**1. Get a new VPS** (fresh Debian 12 install)
+
+**2. Clear old SSH keys** — the new VPS has different host keys, so SSH will refuse to connect with a "REMOTE HOST IDENTIFICATION HAS CHANGED" error. Fix by removing the old key from every machine that connected to it:
 
 ```bash
-mullvad-rotate              # show current server + list countries
-mullvad-rotate us           # random US server
-mullvad-rotate de ber       # Berlin
-mullvad-rotate gb lon       # London
-mullvad-rotate jp tyo       # Tokyo
-mullvad-rotate list us      # show all US servers
-mullvad-rotate update       # refresh server list from Mullvad API
+# On your host machine
+ssh-keygen -f ~/.ssh/known_hosts -R OLD_VPS_IP
+
+# On the Kali VM (as kali user)
+ssh-keygen -f ~/.ssh/known_hosts -R OLD_VPS_IP
+
+# On the Kali VM (as root, used by vpn-chain)
+sudo ssh-keygen -R OLD_VPS_IP
 ```
+
+> **Why this happens**: SSH remembers each server's fingerprint to prevent man-in-the-middle attacks. When you reinstall the OS, the server gets new keys, and SSH thinks someone is impersonating the server. Removing the old entry tells SSH to accept the new key.
+
+**3. Set up the new VPS** — run `install.sh` and `setup-mullvad-wg.sh` (same as Quick Start steps 1 and 5)
+
+**4. Update client config** — paste the new client config into `/etc/wireproxy-awg.conf` on the VM
+
+**5. Set up SSH key** — `sudo ssh-copy-id root@NEW_VPS_IP`
+
+**6. Go** — `sudo vpn-chain start reverse`
 
 ## File Structure
 
