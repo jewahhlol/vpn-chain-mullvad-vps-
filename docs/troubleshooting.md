@@ -31,18 +31,66 @@ grep PrivateKey /etc/wireproxy-awg.conf | awk '{print $3}' | wg pubkey
 ```
 This must match what's in the server's `[Peer] PublicKey`.
 
-### Mullvad won't connect (VirtualBox)
+### Mullvad won't connect (stuck on "Connecting")
 
-Try QUIC obfuscation:
+**Cause 1: Device revoked.** Mullvad allows max 5 devices per account. If yours was kicked, it will try to connect forever without a clear error.
+
+Check:
 ```bash
+mullvad account get
+```
+If it says "The current device has been revoked" — re-login:
+```bash
+mullvad account login YOUR_ACCOUNT_NUMBER
+```
+
+**Cause 2: Wrong obfuscation mode.** In Russia and countries with DPI, plain WireGuard is blocked. Mullvad may show "Connected" but no traffic passes.
+
+Fix — enable QUIC obfuscation:
+```bash
+# Mullvad 2026+:
+mullvad anti-censorship set mode quic
+
+# Older versions:
 mullvad obfuscation set mode default
+```
+Then reconnect:
+```bash
 mullvad disconnect && mullvad connect
 ```
 
-If still fails — VirtualBox Bridged Adapter over WiFi is flaky. Some WiFi drivers/adapters don't support it well. Try:
-- Different Mullvad server locations
-- Different obfuscation modes
+**Cause 3: VirtualBox Bridged WiFi.** Some WiFi adapters don't work well with Bridged Adapter. Try:
+- Different Mullvad server locations (`mullvad relay set location de`)
 - Wired (Ethernet) connection instead of WiFi
+- Different obfuscation modes
+
+> **Note on Russia/censored networks**: Forward mode requires Mullvad to connect from the VM. If your ISP blocks WireGuard, you **must** use QUIC obfuscation. If even QUIC doesn't work, use reverse mode instead — it only needs AmneziaWG to VPS (DPI-resistant by design).
+
+### Forward mode: Mullvad "Connected" but no internet
+
+**Cause**: Mullvad shows Connected but traffic is silently dropped by DPI (common in Russia with plain WireGuard).
+
+Symptoms:
+- `curl ifconfig.me` hangs or returns empty
+- `ping 8.8.8.8` — "Destination Port Unreachable" or 100% loss
+- `mullvad status` shows "Connected"
+
+Fix:
+```bash
+mullvad anti-censorship set mode quic
+mullvad reconnect
+```
+
+If QUIC also doesn't work — use reverse mode instead. It bypasses the issue entirely because AmneziaWG (not Mullvad) is the outer tunnel.
+
+### AmneziaWG "Configuration parsing error" on VPS
+
+**Cause**: H1-H4 parameters in `awg0.conf` have wrong format. They must be plain integers, not strings with dashes.
+
+Wrong: `H1 = 123-456`
+Correct: `H1 = 123456`
+
+If you see this after running `install.sh`, the installer has a bug. Re-run with the latest version from the repo.
 
 ## Wrong exit IP
 
@@ -130,6 +178,59 @@ Expected with double VPN. Reduce by:
 - Using VPS and Mullvad servers in the same region
 - Forward mode: Mullvad server near VPS
 - Reverse mode: Mullvad server near target
+
+## SSH "REMOTE HOST IDENTIFICATION HAS CHANGED"
+
+**Cause**: You reinstalled the VPS OS. The new install has different SSH host keys, but your machine remembers the old ones.
+
+This is **not an attack** — it's expected after VPS reinstall.
+
+Fix — remove the old key on **every machine** that connected to the VPS:
+```bash
+# On your host machine:
+ssh-keygen -f ~/.ssh/known_hosts -R VPS_IP
+
+# On Kali VM (as kali user):
+ssh-keygen -f ~/.ssh/known_hosts -R VPS_IP
+
+# On Kali VM (as root, used by vpn-chain):
+sudo ssh-keygen -R VPS_IP
+```
+
+**Rule**: Error appeared → fix it on that machine. SSH tells you which file and which line in the error message.
+
+## `sudo ssh-copy-id`: "No identities found"
+
+**Cause**: Root has no SSH key. `vpn-chain` runs as root (via sudo), so the SSH key must belong to root.
+
+Fix:
+```bash
+sudo ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519
+sudo ssh-copy-id root@VPS_IP
+```
+
+Verify:
+```bash
+sudo ssh root@VPS_IP "echo ok"
+```
+
+> **Important**: `ssh root@VPS_IP` (without sudo) uses kali's key. `sudo ssh root@VPS_IP` uses root's key. `vpn-chain` uses root's key.
+
+## `ssh root@VPS_IP`: asks for password (but `sudo ssh` works)
+
+The SSH key is only in `/root/.ssh/`. When you SSH without sudo, it uses `/home/kali/.ssh/` which doesn't have the key.
+
+Either always use `sudo ssh`, or copy kali's key too:
+```bash
+ssh-copy-id root@VPS_IP
+```
+
+## VPS: `git: command not found`
+
+Fresh Debian doesn't have git. Install it first:
+```bash
+apt-get update && apt-get install -y git
+```
 
 ## After VM reboot
 
