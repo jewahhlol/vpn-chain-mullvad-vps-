@@ -219,8 +219,8 @@ vpn-chain/
 
 - **Kill switch is architectural**: if Mullvad drops (forward mode), VPS becomes unreachable, all traffic stops. No manual kill switch needed.
 - **IPv6 is blocked**: `ip6tables -P OUTPUT DROP` prevents leaks.
-- **DNS goes through the chain**: resolved by Mullvad (100.64.0.x) or VPS, not your ISP.
-- **UDP limitations**: redsocks only handles TCP. Raw UDP (some VoIP, game traffic) won't go through the chain. DNS works because it's resolved by the tunnel's DNS server.
+- **DNS goes through the chain**: dnscrypt-proxy resolves via DNS-over-HTTPS (TCP/443), which redsocks catches and routes through the chain. No UDP DNS leaks.
+- **UDP limitations**: redsocks only handles TCP. Raw UDP (some VoIP, game traffic) won't go through the chain.
 - **Host isolation**: use Bridged Adapter in VirtualBox, not NAT. NAT routes VM traffic through the host's network stack (and any host VPN).
 
 ## Tested On

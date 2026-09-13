@@ -147,9 +147,11 @@ case "$1" in
         echo -e "${YELLOW}wireproxy-awg:${RESET} $(pgrep -f wireproxy-awg > /dev/null && echo -e "${GREEN}running${RESET}" || echo -e "${RED}stopped${RESET}")"
         echo -e "${YELLOW}redsocks:${RESET}      $(pgrep redsocks > /dev/null && echo -e "${GREEN}running${RESET}" || echo -e "${RED}stopped${RESET}")"
         echo -e "${YELLOW}iptables:${RESET}      $(iptables -t nat -L REDSOCKS 2>/dev/null | grep -q REDIRECT && echo -e "${GREEN}active${RESET}" || echo -e "${RED}inactive${RESET}")"
+        echo -e "${YELLOW}dnscrypt-proxy:${RESET}$(systemctl is-active dnscrypt-proxy 2>/dev/null | grep -q active && echo -e " ${GREEN}running${RESET}" || echo -e " ${RED}stopped${RESET}")"
         echo ""
         echo -e "${YELLOW}Exit IP:${RESET} $(curl -4 -s --connect-timeout 5 ifconfig.me)"
         echo -e "${YELLOW}VPS IP:${RESET}  $VPS_IP"
+        echo -e "${YELLOW}DNS:${RESET}     $(grep nameserver /etc/resolv.conf | awk '{print $2}')"
         ;;
     check)
         echo -e "${CYAN}=== Full Chain Verification ===${RESET}"
@@ -157,6 +159,8 @@ case "$1" in
         echo -e "${YELLOW}wget:${RESET}    $(wget -4 -qO- --timeout=5 ifconfig.me 2>/dev/null)"
         echo -e "${YELLOW}python:${RESET}  $(python3 -c "import urllib.request; print(urllib.request.urlopen('http://ifconfig.me').read().decode().strip())" 2>/dev/null)"
         echo -e "${YELLOW}DNS:${RESET}     $(nslookup example.com 2>/dev/null | grep Server | awk '{print $2}')"
+        DNS_EXT=$(nslookup -type=txt o-o.myaddr.l.google.com ns1.google.com 2>/dev/null | grep text | head -1 | tr -d '"' | awk '{print $NF}')
+        echo -e "${YELLOW}DNS exit:${RESET}$([ -n "$DNS_EXT" ] && echo " $DNS_EXT" || echo " could not determine")"
         ;;
     *)
         echo "vpn-chain — double VPN chain manager"
