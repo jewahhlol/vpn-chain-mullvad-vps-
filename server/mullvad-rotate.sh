@@ -12,7 +12,7 @@ GREEN="\e[32m"; YELLOW="\e[33m"; CYAN="\e[36m"; RED="\e[31m"; RESET="\e[0m"
 SERVERS="/etc/wireguard/mullvad-servers.json"
 CONF="/etc/wireguard/mullvad.conf"
 PRIVKEY=$(cat /etc/wireguard/mullvad_private.key)
-ADDRESS="10.68.174.44/32"
+ADDRESS=$(grep Address /etc/wireguard/mullvad.conf | awk '{print $3}')
 
 if [ ! -f "$SERVERS" ]; then
     echo -e "${RED}Server list not found. Downloading...${RESET}"

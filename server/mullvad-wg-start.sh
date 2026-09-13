@@ -18,7 +18,8 @@ wg-quick up mullvad 2>&1 | grep -v "^#"
 ip rule add from 10.9.9.0/24 table 42 priority 100 2>/dev/null || true
 
 # MASQUERADE AWG traffic through Mullvad
-iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE 2>/dev/null || true
+DEFAULT_IF=$(ip route | grep 'default via' | grep -v mullvad | head -1 | awk '{print $5}')
+iptables -t nat -D POSTROUTING -o $DEFAULT_IF -j MASQUERADE 2>/dev/null || true
 iptables -t nat -A POSTROUTING -o mullvad -j MASQUERADE 2>/dev/null || true
 
 sleep 2

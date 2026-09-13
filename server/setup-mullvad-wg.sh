@@ -91,9 +91,6 @@ cp "$SCRIPT_DIR/mullvad-wg-stop.sh" /usr/local/bin/mullvad-wg-stop.sh
 cp "$SCRIPT_DIR/mullvad-rotate.sh" /usr/local/bin/mullvad-rotate
 chmod +x /usr/local/bin/mullvad-wg-start.sh /usr/local/bin/mullvad-wg-stop.sh /usr/local/bin/mullvad-rotate
 
-# Update mullvad-rotate with correct address
-sed -i "s|ADDRESS=.*|ADDRESS=\"$MULLVAD_ADDR\"|" /usr/local/bin/mullvad-rotate
-
 # Create systemd service
 cat > /etc/systemd/system/mullvad-wg.service << SVC
 [Unit]
