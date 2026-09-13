@@ -52,16 +52,21 @@ setup_redsocks_iptables() {
 }
 
 start_wireproxy() {
-    if ! pgrep -f wireproxy-awg > /dev/null; then
-        /usr/local/bin/wireproxy-awg -c /etc/wireproxy-awg.conf &>/dev/null &
-        sleep 3
-    fi
+    pkill -f wireproxy-awg 2>/dev/null
+    sleep 1
+    /usr/local/bin/wireproxy-awg -c /etc/wireproxy-awg.conf &>/dev/null &
+    sleep 3
     if pgrep -f wireproxy-awg > /dev/null; then
         echo -e "${GREEN}[+] wireproxy-awg running (SOCKS5 127.0.0.1:1080)${RESET}"
     else
         echo -e "${RED}[-] wireproxy-awg FAILED to start${RESET}"
         return 1
     fi
+}
+
+# Test that SOCKS5 proxy actually works (handshake completed)
+test_socks5() {
+    curl -x socks5://127.0.0.1:1080 -4 -s --connect-timeout 8 ifconfig.me 2>/dev/null
 }
 
 start_forward() {
@@ -97,13 +102,51 @@ start_forward() {
     start_wireproxy || return 1
     setup_redsocks_iptables
 
+    # Verify chain works — if not, auto-switch Mullvad servers
+    FALLBACK_RELAYS="de fr nl gb ch us"
     echo ""
     echo -e "${CYAN}[*] Verifying...${RESET}"
-    IP=$(curl -4 -s --connect-timeout 10 ifconfig.me)
+    IP=$(test_socks5)
+
     if [ "$IP" = "$VPS_IP" ]; then
+        RELAY_NAME=$(mullvad status 2>/dev/null | grep "Relay:" | awk '{print $NF}')
+        RELAY_LOC=$(mullvad status 2>/dev/null | grep "Visible location:" | sed 's/.*location:[[:space:]]*//' | sed 's/\.  *IPv4.*//')
         echo -e "${GREEN}[+] SUCCESS! Exit IP: $IP (VPS)${RESET}"
+        echo -e "${GREEN}    Mullvad: $RELAY_NAME ($RELAY_LOC)${RESET}"
     else
-        echo -e "${RED}[-] UNEXPECTED IP: $IP (expected $VPS_IP)${RESET}"
+        echo -e "${YELLOW}[!] Chain not working with current Mullvad server. Auto-switching...${RESET}"
+        for RELAY in $FALLBACK_RELAYS; do
+            echo -e "${YELLOW}[*] Trying: $RELAY...${RESET}"
+            mullvad relay set location $RELAY 2>/dev/null
+            mullvad reconnect 2>/dev/null
+            # Wait up to 15s for connection
+            for _w in $(seq 1 15); do
+                mullvad status 2>/dev/null | grep -q "Connected" && break
+                sleep 1
+            done
+            if ! mullvad status 2>/dev/null | grep -q "Connected"; then
+                echo -e "${RED}    [-] $RELAY: Mullvad can't connect${RESET}"
+                continue
+            fi
+            # Restart wireproxy with new Mullvad route
+            pkill -f wireproxy-awg 2>/dev/null
+            sleep 1
+            /usr/local/bin/wireproxy-awg -c /etc/wireproxy-awg.conf &>/dev/null &
+            sleep 6
+            IP=$(test_socks5)
+            if [ "$IP" = "$VPS_IP" ]; then
+                RELAY_NAME=$(mullvad status 2>/dev/null | grep "Relay:" | awk '{print $NF}')
+                RELAY_LOC=$(mullvad status 2>/dev/null | grep "Visible location:" | sed 's/.*location:[[:space:]]*//' | sed 's/\.  *IPv4.*//')
+                echo -e "${GREEN}[+] SUCCESS! Exit IP: $IP (VPS) via Mullvad $RELAY_NAME ($RELAY_LOC)${RESET}"
+                break
+            else
+                echo -e "${RED}    [-] $RELAY: handshake failed${RESET}"
+            fi
+        done
+        if [ "$IP" != "$VPS_IP" ]; then
+            echo -e "${RED}[-] FAILED: Could not establish chain through any Mullvad server${RESET}"
+            echo -e "${RED}    Try: sudo vpn-chain start reverse (doesn't need Mullvad on VM)${RESET}"
+        fi
     fi
 }
 
@@ -316,22 +359,76 @@ case "$1" in
                 echo -e "${CYAN}=== Mullvad Server (Forward Mode) ===${RESET}"
                 mullvad status 2>/dev/null
                 echo ""
-                echo "Usage: vpn-chain switch <country> [city]"
+                echo -e "${CYAN}=== Available Locations ===${RESET}"
+                mullvad relay list 2>/dev/null | grep -E "^[A-Z]|^\t[A-Z]" | sed 's/\t/  /' | sed 's/ @.*//'
                 echo ""
-                echo "Examples:"
-                echo "  vpn-chain switch de        Germany"
-                echo "  vpn-chain switch de ber    Berlin"
-                echo "  vpn-chain switch us nyc    New York"
-                echo "  vpn-chain switch ch zrh    Zurich"
+                echo -e "${YELLOW}Usage: vpn-chain switch <country_code> [city_code]${RESET}"
+                echo "  Example: vpn-chain switch de ber"
             else
+                # Save current working relay for fallback
+                OLD_RELAY=$(mullvad status 2>/dev/null | grep "Relay:" | awk '{print $2}')
+                OLD_LOCATION=$(echo "$OLD_RELAY" | sed 's/-wg-.*//;s/-/ /')
+
+                # Try requested location first, then auto-retry random servers
+                try_mullvad_switch() {
+                    local LOC="$1"
+                    mullvad relay set location $LOC 2>/dev/null
+                    mullvad reconnect 2>/dev/null
+                    # Wait up to 15s for Mullvad to connect
+                    local i=0
+                    while [ $i -lt 15 ]; do
+                        if mullvad status 2>/dev/null | grep -q "Connected"; then
+                            break
+                        fi
+                        sleep 1
+                        i=$((i+1))
+                    done
+                    if ! mullvad status 2>/dev/null | grep -q "Connected"; then
+                        return 1
+                    fi
+                    # Restart wireproxy to use new Mullvad route
+                    pkill -f wireproxy-awg 2>/dev/null
+                    sleep 1
+                    /usr/local/bin/wireproxy-awg -c /etc/wireproxy-awg.conf &>/dev/null &
+                    sleep 6
+                    local IP=$(test_socks5)
+                    if [ "$IP" = "$VPS_IP" ]; then
+                        return 0
+                    fi
+                    return 1
+                }
+
                 echo -e "${CYAN}[*] Forward mode: switching Mullvad to: $ARGS${RESET}"
-                mullvad relay set location $ARGS 2>&1
-                mullvad reconnect 2>&1
-                sleep 5
-                NEW_STATUS=$(mullvad status 2>/dev/null)
-                echo -e "${GREEN}[+] $(echo "$NEW_STATUS" | head -1)${RESET}"
-                echo -e "${GREEN}    $(echo "$NEW_STATUS" | grep "Visible location")${RESET}"
-                echo -e "${YELLOW}Exit IP (VPS):${RESET} $(curl -4 -s --connect-timeout 5 ifconfig.me)"
+                if try_mullvad_switch "$ARGS"; then
+                    RELAY_NAME=$(mullvad status 2>/dev/null | grep "Relay:" | awk '{print $NF}')
+                    RELAY_LOC=$(mullvad status 2>/dev/null | grep "Visible location:" | sed 's/.*location:[[:space:]]*//' | sed 's/\.  *IPv4.*//')
+                    echo -e "${GREEN}[+] Connected: $RELAY_NAME ($RELAY_LOC)${RESET}"
+                    echo -e "${GREEN}    Exit IP (VPS): $VPS_IP${RESET}"
+                else
+                    echo -e "${RED}[-] $ARGS: failed. Trying 10 random servers...${RESET}"
+                    # Get all country codes and pick 10 random
+                    ALL_CODES=$(mullvad relay list 2>/dev/null | grep -oP '^\S.*\(\K[a-z]{2}(?=\))' | sort -u)
+                    RANDOM_CODES=$(echo "$ALL_CODES" | shuf | head -10)
+                    FOUND=0
+                    for CODE in $RANDOM_CODES; do
+                        echo -e "${YELLOW}[*] Trying: $CODE...${RESET}"
+                        if try_mullvad_switch "$CODE"; then
+                            RELAY_NAME=$(mullvad status 2>/dev/null | grep "Relay:" | awk '{print $NF}')
+                            RELAY_LOC=$(mullvad status 2>/dev/null | grep "Visible location:" | sed 's/.*location:[[:space:]]*//' | sed 's/\.  *IPv4.*//')
+                            echo -e "${GREEN}[+] Connected: $RELAY_NAME ($RELAY_LOC)${RESET}"
+                            echo -e "${GREEN}    Exit IP (VPS): $VPS_IP${RESET}"
+                            FOUND=1
+                            break
+                        else
+                            echo -e "${RED}    [-] $CODE: failed${RESET}"
+                        fi
+                    done
+                    if [ "$FOUND" = "0" ]; then
+                        echo -e "${RED}[-] All 10 attempts failed. Restoring: $OLD_LOCATION${RESET}"
+                        try_mullvad_switch "$OLD_LOCATION"
+                        echo -e "${GREEN}[+] Restored: $OLD_RELAY${RESET}"
+                    fi
+                fi
             fi
         else
             # REVERSE MODE — rotate Mullvad WG on VPS
