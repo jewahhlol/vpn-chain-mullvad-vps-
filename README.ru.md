@@ -95,13 +95,12 @@ VPS расшифровывает, форвардит на 93.184.216.34:80
 
 ### 1. Поднять VPS
 
-Берёшь VPS с Debian 12 / Ubuntu 22.04+ (KVM, не OpenVZ). Дальше с локальной машины:
+Берёшь VPS с Debian 12 / Ubuntu 22.04+ (KVM, не OpenVZ). Заходишь по SSH и ставишь:
 
 ```bash
-# SSH на новый VPS
 ssh root@IP_ТВОЕГО_VPS
 
-# Клонируй репо и запусти серверный установщик
+apt-get update && apt-get install -y git
 git clone https://github.com/jewahhlol/vpn-chain-mullvad-vps-.git vpn-chain
 cd vpn-chain/server
 chmod +x *.sh
@@ -114,7 +113,7 @@ chmod +x *.sh
 
 ### 2. Установить клиент на VM
 
-На Kali / Debian VM (обязательно **Bridged Adapter** в VirtualBox, не NAT):
+Теперь на твоей **Kali / Debian VM** (не на VPS — это твоя атакующая машина, обязательно **Bridged Adapter** в VirtualBox, не NAT):
 
 ```bash
 git clone https://github.com/jewahhlol/vpn-chain-mullvad-vps-.git vpn-chain
@@ -123,7 +122,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-Установит wireproxy-awg, redsocks, dnscrypt-proxy и команду `vpn-chain`.
+Установит wireproxy-awg, redsocks, dnscrypt-proxy и команду `vpn-chain` на VM.
 
 ### 3. Вставить клиентский конфиг
 

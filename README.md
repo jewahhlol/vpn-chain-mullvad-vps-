@@ -95,13 +95,12 @@ VPS decrypts, forwards to 93.184.216.34:80
 
 ### 1. Set up the VPS
 
-Get a VPS with Debian 12 / Ubuntu 22.04+ (KVM, not OpenVZ). Then from your local machine:
+Get a VPS with Debian 12 / Ubuntu 22.04+ (KVM, not OpenVZ). SSH into it and run:
 
 ```bash
-# SSH to your new VPS
 ssh root@YOUR_VPS_IP
 
-# Clone the repo and run server setup
+apt-get update && apt-get install -y git
 git clone https://github.com/jewahhlol/vpn-chain-mullvad-vps-.git vpn-chain
 cd vpn-chain/server
 chmod +x *.sh
@@ -114,7 +113,7 @@ The installer will output a **client config** at the end — copy it, you'll nee
 
 ### 2. Set up the client VM
 
-On your Kali / Debian VM (must use **Bridged Adapter** in VirtualBox, not NAT):
+Now on your **Kali / Debian VM** (not the VPS — this is your attack machine, must use **Bridged Adapter** in VirtualBox, not NAT):
 
 ```bash
 git clone https://github.com/jewahhlol/vpn-chain-mullvad-vps-.git vpn-chain
@@ -123,7 +122,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-This installs wireproxy-awg, redsocks, dnscrypt-proxy, and the `vpn-chain` command.
+This installs wireproxy-awg, redsocks, dnscrypt-proxy, and the `vpn-chain` command on the VM.
 
 ### 3. Paste the client config
 
