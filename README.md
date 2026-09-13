@@ -216,12 +216,20 @@ sudo vpn-chain start            # Forward mode (exit = VPS IP)
 sudo vpn-chain start reverse    # Reverse mode (exit = Mullvad IP)
 sudo vpn-chain stop             # Stop all chains
 sudo vpn-chain status           # Show component status + exit IP
-sudo vpn-chain check            # Full leak test (IP, DNS, IPv6)
-sudo vpn-chain switch           # Show current server + available locations
+sudo vpn-chain check            # Full chain integrity check (IP, DNS, IPv6, each link)
+sudo vpn-chain switch           # Show all available countries/cities
 sudo vpn-chain switch us        # Switch to US (auto-detects mode)
 sudo vpn-chain switch de ber    # Switch to Berlin
 sudo vpn-chain switch jp        # Switch to Japan
 ```
+
+### Auto-retry on start
+
+In forward mode, if the current Mullvad server can't establish the chain (QUIC/DPI issues), `vpn-chain start forward` automatically tries alternative servers (de, fr, nl, gb, ch, us) until one works.
+
+### Auto-retry on switch
+
+In forward mode, if `vpn-chain switch <country>` fails, the script automatically tries 10 random Mullvad servers. If all fail, it restores the previous working server. In reverse mode, switching always works (plain WireGuard on VPS).
 
 ## Replacing / rotating VPS
 
