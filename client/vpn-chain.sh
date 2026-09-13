@@ -175,15 +175,32 @@ case "$1" in
         DNS_EXT=$(nslookup -type=txt o-o.myaddr.l.google.com ns1.google.com 2>/dev/null | grep text | head -1 | tr -d '"' | awk '{print $NF}')
         echo -e "${YELLOW}DNS exit:${RESET}$([ -n "$DNS_EXT" ] && echo " $DNS_EXT" || echo " could not determine")"
         ;;
+    rotate)
+        shift
+        ARGS="$*"
+        if [ -z "$ARGS" ]; then
+            vps_cmd "mullvad-rotate" && echo "" && \
+            echo -e "${YELLOW}Exit IP:${RESET} $(curl -4 -s --connect-timeout 5 ifconfig.me)"
+        else
+            vps_cmd "mullvad-rotate $ARGS"
+            sleep 2
+            IP=$(curl -4 -s --connect-timeout 5 ifconfig.me)
+            echo -e "${GREEN}[+] New exit IP: $IP${RESET}"
+        fi
+        ;;
     *)
         echo "vpn-chain — double VPN chain manager"
         echo ""
-        echo "Usage: vpn-chain {start|start reverse|stop|status|check}"
+        echo "Usage: vpn-chain {start|start reverse|stop|status|check|rotate}"
         echo ""
         echo "  start          FORWARD: VM -> Mullvad -> VPS (exit = $VPS_IP)"
         echo "  start reverse  REVERSE: VM -> VPS -> Mullvad (exit = Mullvad IP)"
         echo "  stop           Stop all chains"
         echo "  status         Component status + exit IP"
         echo "  check          Verify all apps exit through chain"
+        echo "  rotate [cc]    Rotate Mullvad server (reverse mode)"
+        echo "                   rotate         — show current + countries"
+        echo "                   rotate us      — random US server"
+        echo "                   rotate de ber  — Berlin"
         ;;
 esac
