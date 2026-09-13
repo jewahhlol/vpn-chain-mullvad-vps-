@@ -12,13 +12,10 @@ if [ -z "$VPS_IP" ]; then
     exit 1
 fi
 
-# SSH to VPS (through tunnel if available, otherwise direct)
+# SSH to VPS (try public IP first, then tunnel IP)
 vps_cmd() {
-    if ip route get 10.9.9.1 &>/dev/null && ssh -o ConnectTimeout=3 -o BatchMode=yes root@10.9.9.1 true 2>/dev/null; then
-        ssh -o ConnectTimeout=5 -o BatchMode=yes root@10.9.9.1 "$1" 2>/dev/null
-    else
-        ssh -o ConnectTimeout=5 -o BatchMode=yes root@$VPS_IP "$1" 2>/dev/null
-    fi
+    ssh -o ConnectTimeout=15 -o BatchMode=yes root@$VPS_IP "$1" 2>/dev/null || \
+    ssh -o ConnectTimeout=15 -o BatchMode=yes root@10.9.9.1 "$1" 2>/dev/null
 }
 
 stop_all() {
@@ -204,30 +201,100 @@ case "$1" in
             echo -e "${RED}[-] WARNING: IPv6 is leaking! ($IPV6)${RESET}"
         fi
 
+        # Get VM's local IP for comparison
+        VM_LOCAL_IP=$(ip -4 addr show $(ip route | grep 'default via' | head -1 | awk '{print $5}') 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+
         # Detect mode and verify chain
         MULLVAD_STATUS=$(mullvad status 2>/dev/null | head -1)
+        CHAIN_OK=true
         echo ""
         if echo "$MULLVAD_STATUS" | grep -q "Connected"; then
-            echo -e "${CYAN}--- FORWARD MODE ---${RESET}"
+            echo -e "${CYAN}--- CHAIN: You → Mullvad → VPS → Target ---${RESET}"
+            echo ""
+
+            # Link 1: VM → Mullvad
             MULLVAD_RELAY=$(mullvad status 2>/dev/null | grep Relay | awk '{print $2}')
             MULLVAD_LOCATION=$(mullvad status 2>/dev/null | grep "Visible location" | sed 's/.*Visible location:[[:space:]]*//')
-            echo -e "${YELLOW}Mullvad relay:${RESET}  $MULLVAD_RELAY"
-            echo -e "${YELLOW}Mullvad location:${RESET} $MULLVAD_LOCATION"
-
-            # Check what VPS sees as source
-            VPS_PEER=$(vps_cmd "awg show | grep endpoint | awk '{print \$3}' | cut -d: -f1" 2>/dev/null)
-            if [ -n "$VPS_PEER" ]; then
-                echo -e "${YELLOW}VPS sees source:${RESET} $VPS_PEER"
-                if [ "$VPS_PEER" != "$(curl -4 -s --connect-timeout 3 ifconfig.me/ip 2>/dev/null)" ]; then
-                    echo -e "${GREEN}[+] VPS does NOT see your real IP (sees Mullvad exit)${RESET}"
-                fi
+            echo -e "${YELLOW}[1] VM → Mullvad${RESET}"
+            echo -e "    Relay: $MULLVAD_RELAY"
+            echo -e "    Location: $MULLVAD_LOCATION"
+            if [ -n "$MULLVAD_RELAY" ]; then
+                echo -e "    ${GREEN}✓ Mullvad tunnel active${RESET}"
+            else
+                echo -e "    ${RED}✗ Mullvad not connected!${RESET}"
+                CHAIN_OK=false
             fi
-            echo -e "${YELLOW}Target sees:${RESET}    $CURL_IP (VPS)"
+            echo ""
+
+            # Link 2: Mullvad → VPS
+            echo -e "${YELLOW}[2] Mullvad → VPS${RESET}"
+            VPS_PEER_RAW=$(vps_cmd "awg show | grep endpoint" 2>/dev/null)
+            VPS_PEER=$(echo "$VPS_PEER_RAW" | awk '{print $NF}' | cut -d: -f1)
+            if [ -n "$VPS_PEER" ]; then
+                echo -e "    VPS sees source: $VPS_PEER (Mullvad exit)"
+                if [ "$VPS_PEER" != "$VM_LOCAL_IP" ]; then
+                    echo -e "    ${GREEN}✓ Your real IP ($VM_LOCAL_IP) is hidden from VPS${RESET}"
+                else
+                    echo -e "    ${RED}✗ VPS sees your real IP! Mullvad is bypassed!${RESET}"
+                    CHAIN_OK=false
+                fi
+            else
+                echo -e "    ${YELLOW}! Cannot reach VPS via SSH to verify${RESET}"
+            fi
+            echo ""
+
+            # Link 3: VPS → Target
+            echo -e "${YELLOW}[3] VPS → Target${RESET}"
+            echo -e "    Target sees: $CURL_IP"
+            if [ "$CURL_IP" = "$VPS_IP" ]; then
+                echo -e "    ${GREEN}✓ Exit IP = VPS IP ($VPS_IP)${RESET}"
+            else
+                echo -e "    ${RED}✗ Exit IP ($CURL_IP) ≠ VPS IP ($VPS_IP)${RESET}"
+                CHAIN_OK=false
+            fi
         else
-            echo -e "${CYAN}--- REVERSE MODE ---${RESET}"
-            VPS_MULLVAD=$(vps_cmd "curl -s --connect-timeout 5 --interface mullvad ifconfig.me" 2>/dev/null)
-            echo -e "${YELLOW}VPS Mullvad exit:${RESET} ${VPS_MULLVAD:-not running}"
-            echo -e "${YELLOW}Target sees:${RESET}      $CURL_IP (Mullvad)"
+            echo -e "${CYAN}--- CHAIN: You → VPS → Mullvad → Target ---${RESET}"
+            echo ""
+
+            # Link 1: VM → VPS
+            echo -e "${YELLOW}[1] VM → VPS${RESET}"
+            if pgrep -f wireproxy-awg > /dev/null; then
+                echo -e "    AmneziaWG tunnel → $VPS_IP:5000"
+                echo -e "    ${GREEN}✓ AWG tunnel active${RESET}"
+            else
+                echo -e "    ${RED}✗ wireproxy-awg not running!${RESET}"
+                CHAIN_OK=false
+            fi
+            echo ""
+
+            # Link 2: VPS → Mullvad
+            echo -e "${YELLOW}[2] VPS → Mullvad${RESET}"
+            VPS_MULLVAD_IP=$(vps_cmd "curl -s --connect-timeout 5 --interface mullvad ifconfig.me" 2>/dev/null)
+            VPS_MULLVAD_PEER_RAW=$(vps_cmd "wg show mullvad endpoints" 2>/dev/null)
+            VPS_MULLVAD_PEER=$(echo "$VPS_MULLVAD_PEER_RAW" | awk '{print $NF}' | cut -d: -f1)
+            if [ -n "$VPS_MULLVAD_IP" ]; then
+                echo -e "    Mullvad server: $VPS_MULLVAD_PEER"
+                echo -e "    Mullvad exit IP: $VPS_MULLVAD_IP"
+                echo -e "    ${GREEN}✓ VPS routes through Mullvad WG${RESET}"
+            else
+                echo -e "    ${RED}✗ Mullvad WG not running on VPS!${RESET}"
+                CHAIN_OK=false
+            fi
+            echo ""
+
+            # Link 3: Mullvad → Target
+            echo -e "${YELLOW}[3] Mullvad → Target${RESET}"
+            echo -e "    Target sees: $CURL_IP"
+            if [ "$CURL_IP" != "$VPS_IP" ] && [ "$CURL_IP" != "$VM_LOCAL_IP" ] && [ -n "$CURL_IP" ]; then
+                echo -e "    ${GREEN}✓ Exit IP ≠ your real IP${RESET}"
+                echo -e "    ${GREEN}✓ Exit IP ≠ VPS IP (traffic exits through Mullvad)${RESET}"
+            elif [ "$CURL_IP" = "$VPS_IP" ]; then
+                echo -e "    ${RED}✗ Exit IP = VPS! Mullvad WG not routing!${RESET}"
+                CHAIN_OK=false
+            elif [ "$CURL_IP" = "$VM_LOCAL_IP" ]; then
+                echo -e "    ${RED}✗ Exit IP = your real IP! Chain broken!${RESET}"
+                CHAIN_OK=false
+            fi
         fi
 
         echo ""
@@ -236,7 +303,8 @@ case "$1" in
         [ "$CURL_IP" = "$WGET_IP" ] && [ "$CURL_IP" = "$PY_IP" ] && [ -n "$CURL_IP" ] || { echo -e "${RED}  [!] Exit IP mismatch across apps${RESET}"; ISSUES=$((ISSUES+1)); }
         [ "$DNS_SERVER" = "127.0.0.53" ] || { echo -e "${RED}  [!] DNS leak detected${RESET}"; ISSUES=$((ISSUES+1)); }
         [ -z "$IPV6" ] || { echo -e "${RED}  [!] IPv6 leak detected${RESET}"; ISSUES=$((ISSUES+1)); }
-        [ $ISSUES -eq 0 ] && echo -e "${GREEN}  All checks passed. No leaks detected.${RESET}"
+        [ "$CHAIN_OK" = "true" ] || { echo -e "${RED}  [!] Chain integrity failed — not all links verified${RESET}"; ISSUES=$((ISSUES+1)); }
+        [ $ISSUES -eq 0 ] && echo -e "${GREEN}  All checks passed. Chain intact, no leaks.${RESET}"
         ;;
     rotate|switch)
         shift
