@@ -102,7 +102,7 @@ Get a VPS with Debian 12 / Ubuntu 22.04+ (KVM, not OpenVZ). Then from your local
 ssh root@YOUR_VPS_IP
 
 # Clone the repo and run server setup
-git clone https://github.com/YOUR_USER/vpn-chain.git
+git clone https://github.com/jewahhlol/vpn-chain-mullvad-vps-.git vpn-chain
 cd vpn-chain/server
 chmod +x *.sh
 ./install.sh
@@ -117,7 +117,7 @@ The installer will output a **client config** at the end — copy it, you'll nee
 On your Kali / Debian VM (must use **Bridged Adapter** in VirtualBox, not NAT):
 
 ```bash
-git clone https://github.com/YOUR_USER/vpn-chain.git
+git clone https://github.com/jewahhlol/vpn-chain-mullvad-vps-.git vpn-chain
 cd vpn-chain/client
 chmod +x install.sh
 sudo ./install.sh

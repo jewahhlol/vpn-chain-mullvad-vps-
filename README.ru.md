@@ -102,7 +102,7 @@ VPS расшифровывает, форвардит на 93.184.216.34:80
 ssh root@IP_ТВОЕГО_VPS
 
 # Клонируй репо и запусти серверный установщик
-git clone https://github.com/YOUR_USER/vpn-chain.git
+git clone https://github.com/jewahhlol/vpn-chain-mullvad-vps-.git vpn-chain
 cd vpn-chain/server
 chmod +x *.sh
 ./install.sh
@@ -117,7 +117,7 @@ chmod +x *.sh
 На Kali / Debian VM (обязательно **Bridged Adapter** в VirtualBox, не NAT):
 
 ```bash
-git clone https://github.com/YOUR_USER/vpn-chain.git
+git clone https://github.com/jewahhlol/vpn-chain-mullvad-vps-.git vpn-chain
 cd vpn-chain/client
 chmod +x install.sh
 sudo ./install.sh

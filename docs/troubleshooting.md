@@ -101,15 +101,21 @@ Check DNS server:
 nslookup example.com
 ```
 
-Should show `100.64.0.3` (Mullvad DNS) or `1.1.1.1`, not your ISP's DNS.
+Should show `127.0.0.53` (dnscrypt-proxy), not your ISP's DNS.
 
 If DNS is leaking:
 ```bash
-# Check resolv.conf
+# Check resolv.conf — must point to dnscrypt-proxy
 cat /etc/resolv.conf
+# Should show: nameserver 127.0.0.53
 
-# Force DNS through chain
-echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf
+# If wrong, fix and lock it:
+sudo chattr -i /etc/resolv.conf
+echo "nameserver 127.0.0.53" | sudo tee /etc/resolv.conf
+sudo chattr +i /etc/resolv.conf
+
+# Verify dnscrypt-proxy is running
+systemctl status dnscrypt-proxy
 ```
 
 ## Performance issues

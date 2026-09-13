@@ -120,7 +120,8 @@ CONF
 
     # Add route to new endpoint
     ORIG_GW=$(ip route | grep 'default via' | grep -v mullvad | head -1 | awk '{print $3}')
-    ip route add $IP/32 via $ORIG_GW dev eth0 2>/dev/null
+    ORIG_IF=$(ip route | grep 'default via' | grep -v mullvad | head -1 | awk '{print $5}')
+    ip route add $IP/32 via $ORIG_GW dev $ORIG_IF 2>/dev/null
 
     # Start
     wg-quick up mullvad 2>&1 | grep -v "^#"
