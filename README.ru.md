@@ -192,8 +192,11 @@ sudo vpn-chain start reverse
 # Проверить exit IP
 curl ifconfig.me
 
-# Сменить страну
-sudo vpn-chain rotate us
+# Полный тест на утечки
+sudo vpn-chain check
+
+# Сменить страну (работает в обоих режимах)
+sudo vpn-chain switch us
 
 # Переключиться на forward mode (VM → Mullvad → VPS)
 sudo vpn-chain start forward
@@ -213,11 +216,11 @@ sudo vpn-chain start            # Forward mode (exit = IP VPS)
 sudo vpn-chain start reverse    # Reverse mode (exit = IP Mullvad)
 sudo vpn-chain stop             # Остановить все цепочки
 sudo vpn-chain status           # Статус компонентов + exit IP
-sudo vpn-chain check            # Проверить что все приложения идут через цепочку
-sudo vpn-chain rotate           # Показать текущий сервер Mullvad + страны
-sudo vpn-chain rotate us        # Переключить на случайный US сервер
-sudo vpn-chain rotate de ber    # Переключить на Берлин
-sudo vpn-chain rotate jp        # Переключить на Японию
+sudo vpn-chain check            # Полный тест на утечки (IP, DNS, IPv6)
+sudo vpn-chain switch           # Показать текущий сервер + доступные
+sudo vpn-chain switch us        # Сменить на US (авто-определяет режим)
+sudo vpn-chain switch de ber    # Сменить на Берлин
+sudo vpn-chain switch jp        # Сменить на Японию
 ```
 
 ## Замена / ротация VPS
