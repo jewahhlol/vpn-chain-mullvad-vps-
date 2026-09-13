@@ -1,0 +1,29 @@
+# wireproxy-awg client config
+# Replace values with output from server/install.sh
+
+[Interface]
+Address = 10.9.9.3/32
+PrivateKey = YOUR_CLIENT_PRIVATE_KEY
+DNS = 1.1.1.1
+MTU = 1280
+Jc = 5
+Jmin = 61
+Jmax = 119
+S1 = 99
+S2 = 122
+S3 = 44
+S4 = 26
+H1 = 0-0
+H2 = 0-0
+H3 = 0-0
+H4 = 0-0
+I1 = 130
+
+[Peer]
+PublicKey = YOUR_SERVER_PUBLIC_KEY
+Endpoint = YOUR_VPS_IP:5000
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25
+
+[Socks5]
+BindAddress = 127.0.0.1:1080

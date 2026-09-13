@@ -1,0 +1,5 @@
+*.conf
+!client/redsocks.conf
+!client/wireproxy-awg.conf.example
+*.key
+*.json
