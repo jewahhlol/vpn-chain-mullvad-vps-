@@ -83,6 +83,7 @@ start_forward() {
         return 1
     fi
 
+    mullvad dns set custom 127.0.0.53 2>/dev/null
     if ! mullvad status 2>/dev/null | grep -q "Connected"; then
         echo -e "${YELLOW}[!] Connecting Mullvad...${RESET}"
         chattr -i /etc/resolv.conf 2>/dev/null
