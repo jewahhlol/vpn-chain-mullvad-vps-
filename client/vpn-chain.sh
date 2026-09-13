@@ -83,14 +83,18 @@ start_forward() {
         return 1
     fi
 
-    # Unlock resolv.conf so Mullvad can set its DNS
-    chattr -i /etc/resolv.conf 2>/dev/null
     if ! mullvad status 2>/dev/null | grep -q "Connected"; then
         echo -e "${YELLOW}[!] Connecting Mullvad...${RESET}"
+        chattr -i /etc/resolv.conf 2>/dev/null
         mullvad connect
         sleep 3
     fi
     echo -e "${GREEN}[+] Mullvad: $(mullvad status | head -1)${RESET}"
+
+    # Lock DNS to dnscrypt-proxy (prevent Mullvad DNS from leaking chain structure)
+    chattr -i /etc/resolv.conf 2>/dev/null
+    echo "nameserver 127.0.0.53" > /etc/resolv.conf
+    chattr +i /etc/resolv.conf
 
     start_wireproxy || return 1
     setup_redsocks_iptables
