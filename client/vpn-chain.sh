@@ -238,68 +238,60 @@ case "$1" in
         [ -z "$IPV6" ] || { echo -e "${RED}  [!] IPv6 leak detected${RESET}"; ISSUES=$((ISSUES+1)); }
         [ $ISSUES -eq 0 ] && echo -e "${GREEN}  All checks passed. No leaks detected.${RESET}"
         ;;
-    rotate)
+    rotate|switch)
         shift
         ARGS="$*"
-        if [ -z "$ARGS" ]; then
-            vps_cmd "mullvad-rotate" && echo "" && \
-            echo -e "${YELLOW}Exit IP:${RESET} $(curl -4 -s --connect-timeout 5 ifconfig.me)"
+        # Detect mode: Mullvad connected on VM = forward, otherwise = reverse
+        if mullvad status 2>/dev/null | grep -q "Connected"; then
+            # FORWARD MODE — switch Mullvad relay on VM
+            if [ -z "$ARGS" ]; then
+                echo -e "${CYAN}=== Mullvad Server (Forward Mode) ===${RESET}"
+                mullvad status 2>/dev/null
+                echo ""
+                echo "Usage: vpn-chain switch <country> [city]"
+                echo ""
+                echo "Examples:"
+                echo "  vpn-chain switch de        Germany"
+                echo "  vpn-chain switch de ber    Berlin"
+                echo "  vpn-chain switch us nyc    New York"
+                echo "  vpn-chain switch ch zrh    Zurich"
+            else
+                echo -e "${CYAN}[*] Forward mode: switching Mullvad to: $ARGS${RESET}"
+                mullvad relay set location $ARGS 2>&1
+                mullvad reconnect 2>&1
+                sleep 5
+                NEW_STATUS=$(mullvad status 2>/dev/null)
+                echo -e "${GREEN}[+] $(echo "$NEW_STATUS" | head -1)${RESET}"
+                echo -e "${GREEN}    $(echo "$NEW_STATUS" | grep "Visible location")${RESET}"
+                echo -e "${YELLOW}Exit IP (VPS):${RESET} $(curl -4 -s --connect-timeout 5 ifconfig.me)"
+            fi
         else
-            vps_cmd "mullvad-rotate $ARGS"
-            sleep 2
-            IP=$(curl -4 -s --connect-timeout 5 ifconfig.me)
-            echo -e "${GREEN}[+] New exit IP: $IP${RESET}"
-        fi
-        ;;
-    switch)
-        shift
-        if ! mullvad status 2>/dev/null | grep -q "Connected"; then
-            echo -e "${RED}[-] Mullvad not connected. 'switch' is for forward mode only.${RESET}"
-            echo -e "${YELLOW}    For reverse mode use: vpn-chain rotate${RESET}"
-            exit 1
-        fi
-        if [ -z "$1" ]; then
-            echo -e "${CYAN}=== Mullvad Server (Forward Mode) ===${RESET}"
-            mullvad status 2>/dev/null
-            echo ""
-            echo "Usage: vpn-chain switch <country> [city]"
-            echo ""
-            echo "Examples:"
-            echo "  vpn-chain switch de        Germany (random server)"
-            echo "  vpn-chain switch de ber    Berlin"
-            echo "  vpn-chain switch us nyc    New York"
-            echo "  vpn-chain switch ch zrh    Zurich"
-            echo ""
-            echo "Available locations:"
-            mullvad relay list 2>/dev/null | grep -E "^\S" | head -30
-        else
-            LOCATION="$*"
-            echo -e "${CYAN}[*] Switching Mullvad to: $LOCATION${RESET}"
-            mullvad relay set location $LOCATION 2>&1
-            mullvad reconnect 2>&1
-            sleep 5
-            NEW_STATUS=$(mullvad status 2>/dev/null)
-            echo -e "${GREEN}[+] $(echo "$NEW_STATUS" | head -1)${RESET}"
-            echo -e "${GREEN}    $(echo "$NEW_STATUS" | grep "Visible location")${RESET}"
+            # REVERSE MODE — rotate Mullvad WG on VPS
+            if [ -z "$ARGS" ]; then
+                vps_cmd "mullvad-rotate" && echo "" && \
+                echo -e "${YELLOW}Exit IP:${RESET} $(curl -4 -s --connect-timeout 5 ifconfig.me)"
+            else
+                echo -e "${CYAN}[*] Reverse mode: rotating VPS Mullvad to: $ARGS${RESET}"
+                vps_cmd "mullvad-rotate $ARGS"
+                sleep 2
+                IP=$(curl -4 -s --connect-timeout 5 ifconfig.me)
+                echo -e "${GREEN}[+] New exit IP: $IP${RESET}"
+            fi
         fi
         ;;
     *)
         echo "vpn-chain — double VPN chain manager"
         echo ""
-        echo "Usage: vpn-chain {start|start reverse|stop|status|check|rotate|switch}"
+        echo "Usage: vpn-chain {start|start reverse|stop|status|check|switch}"
         echo ""
         echo "  start          FORWARD: VM -> Mullvad -> VPS (exit = $VPS_IP)"
         echo "  start reverse  REVERSE: VM -> VPS -> Mullvad (exit = Mullvad IP)"
         echo "  stop           Stop all chains"
         echo "  status         Component status + exit IP"
         echo "  check          Full chain verification (leak test)"
-        echo "  rotate [cc]    Rotate Mullvad server (reverse mode)"
-        echo "                   rotate         — show current + countries"
-        echo "                   rotate us      — random US server"
-        echo "                   rotate de ber  — Berlin"
-        echo "  switch [cc]    Switch Mullvad server (forward mode)"
-        echo "                   switch         — show current + locations"
-        echo "                   switch de      — Germany"
-        echo "                   switch us nyc  — New York"
+        echo "  switch [cc]    Switch Mullvad server (auto-detects mode)"
+        echo "                   switch         — show current + available"
+        echo "                   switch us      — USA"
+        echo "                   switch de ber  — Berlin"
         ;;
 esac
