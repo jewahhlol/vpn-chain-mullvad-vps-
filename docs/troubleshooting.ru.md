@@ -166,6 +166,38 @@ sudo chattr +i /etc/resolv.conf
 systemctl status dnscrypt-proxy
 ```
 
+## Реальный IP утекает в Google (QUIC/HTTP3 обход)
+
+**Симптом**: сайты проверки IP показывают VPN IP, но Google показывает реальный IP в капче или местоположении.
+
+**Причина**: Firefox использует HTTP/3 (протокол QUIC = UDP). Redsocks перехватывает только TCP, поэтому QUIC трафик идёт напрямую в интернет мимо VPN цепочки.
+
+**Решение 1** — vpn-chain уже блокирует исходящий UDP через iptables (с v2). Если у тебя старая версия — обнови `vpn-chain.sh`.
+
+**Решение 2** — Отключить HTTP/3 в Firefox (защита в глубину):
+```
+about:config → network.http.http3.enable → false
+```
+
+**Как проверить**:
+```bash
+# Должен показать VPN IP, а не реальный
+sudo vpn-chain check
+```
+
+## Нет интернета после перезагрузки VM
+
+**Симптом**: `ping 8.8.8.8` работает но `curl` нет, или вообще ничего не работает.
+
+**Причина**: `resolv.conf` залочен на `127.0.0.53` (dnscrypt-proxy), но dnscrypt-proxy нужен SOCKS5 прокси (wireproxy) который не запущен.
+
+**Решение**:
+```bash
+sudo vpn-chain stop    # восстанавливает DNS на 8.8.8.8
+```
+
+Если vpn-chain установлен через последний `install.sh`, сервис `vpn-chain-dns-guard` делает это автоматически при загрузке.
+
 ## Проблемы с производительностью
 
 ### Низкая скорость
