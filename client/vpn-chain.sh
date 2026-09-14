@@ -22,6 +22,13 @@ stop_all() {
     iptables -t nat -D OUTPUT -p tcp -j REDSOCKS 2>/dev/null
     iptables -t nat -F REDSOCKS 2>/dev/null
     iptables -t nat -X REDSOCKS 2>/dev/null
+    # Remove UDP leak protection rules
+    iptables -D OUTPUT -p udp -j DROP 2>/dev/null
+    iptables -D OUTPUT -p udp --dport 53 -d 127.0.0.53 -j ACCEPT 2>/dev/null
+    iptables -D OUTPUT -p udp -d $VPS_IP -j ACCEPT 2>/dev/null
+    iptables -D OUTPUT -p udp -d 10.0.0.0/8 -j ACCEPT 2>/dev/null
+    iptables -D OUTPUT -p udp -d 127.0.0.0/8 -j ACCEPT 2>/dev/null
+    iptables -D OUTPUT -p udp -d 192.168.0.0/16 -j ACCEPT 2>/dev/null
     ip6tables -P OUTPUT ACCEPT 2>/dev/null
     ip6tables -F 2>/dev/null
     killall redsocks 2>/dev/null
@@ -54,9 +61,16 @@ setup_redsocks_iptables() {
     iptables -t nat -A REDSOCKS -d $VPS_IP -j RETURN
     iptables -t nat -A REDSOCKS -p tcp -j REDIRECT --to-ports 12345
     iptables -t nat -A OUTPUT -p tcp -j REDSOCKS
+    # Block outgoing UDP (except DNS to dnscrypt and VPS for wireproxy) to prevent QUIC/UDP leaks
+    iptables -A OUTPUT -p udp --dport 53 -d 127.0.0.53 -j ACCEPT
+    iptables -A OUTPUT -p udp -d $VPS_IP -j ACCEPT
+    iptables -A OUTPUT -p udp -d 10.0.0.0/8 -j ACCEPT
+    iptables -A OUTPUT -p udp -d 127.0.0.0/8 -j ACCEPT
+    iptables -A OUTPUT -p udp -d 192.168.0.0/16 -j ACCEPT
+    iptables -A OUTPUT -p udp -j DROP
     ip6tables -P OUTPUT DROP
     ip6tables -A OUTPUT -o lo -j ACCEPT 2>/dev/null
-    echo -e "${GREEN}[+] iptables configured (IPv6 blocked)${RESET}"
+    echo -e "${GREEN}[+] iptables configured (IPv6 blocked, UDP leak protection)${RESET}"
 }
 
 start_wireproxy() {
