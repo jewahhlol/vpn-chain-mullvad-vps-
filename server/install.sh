@@ -86,7 +86,7 @@ cat > /etc/amnezia/amneziawg/awg0.conf << CONF
 Address = 10.9.9.1/24
 ListenPort = $AWG_PORT
 PrivateKey = $SERVER_PRIV
-MTU = 1280
+MTU = 1400
 Jc = $JC
 Jmin = $JMIN
 Jmax = $JMAX
@@ -108,9 +108,15 @@ AllowedIPs = 10.9.9.3/32
 CONF
 chmod 600 /etc/amnezia/amneziawg/awg0.conf
 
-# Enable IP forwarding
-echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-forward.conf
-sysctl -w net.ipv4.ip_forward=1
+# Enable IP forwarding + optimize network buffers
+cat > /etc/sysctl.d/99-vpn-chain.conf << SYSCTL
+net.ipv4.ip_forward=1
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.core.rmem_default=1048576
+net.core.wmem_default=1048576
+SYSCTL
+sysctl -p /etc/sysctl.d/99-vpn-chain.conf
 
 # Start and enable AWG
 awg-quick up awg0
@@ -125,7 +131,7 @@ cat > $CLIENT_CONF << CONF
 Address = 10.9.9.3/32
 PrivateKey = $CLIENT_PRIV
 DNS = 1.1.1.1
-MTU = 1280
+MTU = 1400
 Jc = $JC
 Jmin = $JMIN
 Jmax = $JMAX

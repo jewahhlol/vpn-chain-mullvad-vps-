@@ -5,7 +5,7 @@
 Address = 10.9.9.3/32
 PrivateKey = YOUR_CLIENT_PRIVATE_KEY
 DNS = 1.1.1.1
-MTU = 1280
+MTU = 1400
 Jc = 5
 Jmin = 61
 Jmax = 119

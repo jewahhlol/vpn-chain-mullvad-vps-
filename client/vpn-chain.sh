@@ -26,6 +26,14 @@ stop_all() {
     ip6tables -F 2>/dev/null
     killall redsocks 2>/dev/null
     pkill -f wireproxy-awg 2>/dev/null
+    # Restore normal DNS so internet works without the chain
+    chattr -i /etc/resolv.conf 2>/dev/null
+    echo "nameserver 8.8.8.8" > /etc/resolv.conf
+    # Remove SOCKS5 proxy from dnscrypt-proxy so it works standalone on next boot
+    if [ -f /etc/dnscrypt-proxy/dnscrypt-proxy.toml ]; then
+        sed -i '/^proxy/d' /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+        systemctl restart dnscrypt-proxy 2>/dev/null
+    fi
     echo -e "${GREEN}[+] All chains stopped${RESET}"
 }
 
@@ -94,12 +102,20 @@ start_forward() {
     fi
     echo -e "${GREEN}[+] Mullvad: $(mullvad status | head -1)${RESET}"
 
-    # Lock DNS to dnscrypt-proxy (prevent Mullvad DNS from leaking chain structure)
+    start_wireproxy || return 1
+
+    # Enable SOCKS5 proxy in dnscrypt-proxy (route DNS through chain)
+    if [ -f /etc/dnscrypt-proxy/dnscrypt-proxy.toml ]; then
+        sed -i '/^proxy/d' /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+        sed -i '/^force_tcp/a proxy = "socks5://127.0.0.1:1080"' /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+        systemctl restart dnscrypt-proxy 2>/dev/null
+    fi
+    echo -e "${GREEN}[+] DNS: dnscrypt-proxy → SOCKS5 (no leaks)${RESET}"
+
+    # Lock DNS to dnscrypt-proxy
     chattr -i /etc/resolv.conf 2>/dev/null
     echo "nameserver 127.0.0.53" > /etc/resolv.conf
     chattr +i /etc/resolv.conf
-
-    start_wireproxy || return 1
     setup_redsocks_iptables
 
     # Verify chain works — if not, auto-switch Mullvad servers
@@ -158,12 +174,20 @@ start_reverse() {
     mullvad disconnect 2>/dev/null
     echo -e "${GREEN}[+] Mullvad disconnected (not needed in reverse mode)${RESET}"
 
-    # Lock DNS to dnscrypt-proxy (prevent leaks in reverse mode)
+    start_wireproxy || return 1
+
+    # Enable SOCKS5 proxy in dnscrypt-proxy (route DNS through chain)
+    if [ -f /etc/dnscrypt-proxy/dnscrypt-proxy.toml ]; then
+        sed -i '/^proxy/d' /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+        sed -i '/^force_tcp/a proxy = "socks5://127.0.0.1:1080"' /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+        systemctl restart dnscrypt-proxy 2>/dev/null
+    fi
+    echo -e "${GREEN}[+] DNS: dnscrypt-proxy → SOCKS5 (no leaks)${RESET}"
+
+    # Lock DNS to dnscrypt-proxy
     chattr -i /etc/resolv.conf 2>/dev/null
     echo "nameserver 127.0.0.53" > /etc/resolv.conf
     chattr +i /etc/resolv.conf
-
-    start_wireproxy || return 1
     setup_redsocks_iptables
 
     # Start Mullvad WG on VPS (so traffic exits through Mullvad)

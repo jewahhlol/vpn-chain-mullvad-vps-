@@ -79,6 +79,16 @@ echo "nameserver 127.0.0.53" > /etc/resolv.conf
 chattr +i /etc/resolv.conf
 echo -e "${GREEN}[+] dnscrypt-proxy configured (DNS-over-HTTPS, no leaks)${RESET}"
 
+# Optimize network buffers for VPN throughput
+cat > /etc/sysctl.d/99-vpn-chain.conf << SYSCTL
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.core.rmem_default=1048576
+net.core.wmem_default=1048576
+SYSCTL
+sysctl -p /etc/sysctl.d/99-vpn-chain.conf
+echo -e "${GREEN}[+] Network buffers optimized${RESET}"
+
 # Cleanup
 rm -f /tmp/wireproxy-awg.tar.gz
 
