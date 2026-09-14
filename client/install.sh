@@ -79,6 +79,25 @@ echo "nameserver 127.0.0.53" > /etc/resolv.conf
 chattr +i /etc/resolv.conf
 echo -e "${GREEN}[+] dnscrypt-proxy configured (DNS-over-HTTPS, no leaks)${RESET}"
 
+# Systemd service: restore DNS on boot if vpn-chain is not running
+cat > /etc/systemd/system/vpn-chain-dns-guard.service << 'UNIT'
+[Unit]
+Description=Restore DNS if vpn-chain is not active
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'if ! pgrep -f wireproxy-awg > /dev/null; then chattr -i /etc/resolv.conf 2>/dev/null; echo "nameserver 8.8.8.8" > /etc/resolv.conf; sed -i "/^proxy/d" /etc/dnscrypt-proxy/dnscrypt-proxy.toml 2>/dev/null; systemctl restart dnscrypt-proxy 2>/dev/null; fi'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable vpn-chain-dns-guard.service
+echo -e "${GREEN}[+] DNS guard service installed (auto-restores DNS on boot)${RESET}"
+
 # Optimize network buffers for VPN throughput
 cat > /etc/sysctl.d/99-vpn-chain.conf << SYSCTL
 net.core.rmem_max=16777216
