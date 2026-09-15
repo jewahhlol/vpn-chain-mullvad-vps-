@@ -22,6 +22,12 @@ stop_all() {
     iptables -t nat -D OUTPUT -p tcp -j REDSOCKS 2>/dev/null
     iptables -t nat -F REDSOCKS 2>/dev/null
     iptables -t nat -X REDSOCKS 2>/dev/null
+    # Remove Docker container interception rules
+    iptables -t nat -D PREROUTING -i docker0 -p tcp -j REDSOCKS_DOCKER 2>/dev/null
+    iptables -t nat -F REDSOCKS_DOCKER 2>/dev/null
+    iptables -t nat -X REDSOCKS_DOCKER 2>/dev/null
+    iptables -D FORWARD -i docker0 -p udp -j DROP 2>/dev/null
+    iptables -D FORWARD -i docker0 -p udp -d 172.17.0.0/16 -j ACCEPT 2>/dev/null
     # Remove UDP leak protection rules
     iptables -D OUTPUT -p udp -j DROP 2>/dev/null
     iptables -D OUTPUT -p udp --dport 53 -d 127.0.0.53 -j ACCEPT 2>/dev/null
@@ -70,6 +76,26 @@ setup_redsocks_iptables() {
     iptables -A OUTPUT -p udp -j DROP
     ip6tables -P OUTPUT DROP
     ip6tables -A OUTPUT -o lo -j ACCEPT 2>/dev/null
+    # Intercept Docker container traffic (Strix sandbox etc.) through the chain
+    if ip link show docker0 &>/dev/null; then
+        sysctl -w net.ipv4.conf.docker0.route_localnet=1 &>/dev/null
+        iptables -t nat -N REDSOCKS_DOCKER 2>/dev/null || iptables -t nat -F REDSOCKS_DOCKER
+        iptables -t nat -A REDSOCKS_DOCKER -d 0.0.0.0/8 -j RETURN
+        iptables -t nat -A REDSOCKS_DOCKER -d 10.0.0.0/8 -j RETURN
+        iptables -t nat -A REDSOCKS_DOCKER -d 127.0.0.0/8 -j RETURN
+        iptables -t nat -A REDSOCKS_DOCKER -d 169.254.0.0/16 -j RETURN
+        iptables -t nat -A REDSOCKS_DOCKER -d 172.17.0.0/16 -j RETURN
+        iptables -t nat -A REDSOCKS_DOCKER -d 192.168.0.0/16 -j RETURN
+        iptables -t nat -A REDSOCKS_DOCKER -d 224.0.0.0/4 -j RETURN
+        iptables -t nat -A REDSOCKS_DOCKER -d 240.0.0.0/4 -j RETURN
+        iptables -t nat -A REDSOCKS_DOCKER -d $VPS_IP -j RETURN
+        iptables -t nat -A REDSOCKS_DOCKER -p tcp -j DNAT --to-destination 127.0.0.1:12345
+        iptables -t nat -A PREROUTING -i docker0 -p tcp -j REDSOCKS_DOCKER
+        # Block UDP from Docker containers (prevent leaks)
+        iptables -A FORWARD -i docker0 -p udp -d 172.17.0.0/16 -j ACCEPT
+        iptables -A FORWARD -i docker0 -p udp -j DROP
+        echo -e "${GREEN}[+] Docker containers routed through chain${RESET}"
+    fi
     echo -e "${GREEN}[+] iptables configured (IPv6 blocked, UDP leak protection)${RESET}"
 }
 
